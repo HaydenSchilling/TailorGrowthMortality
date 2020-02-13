@@ -1,0 +1,306 @@
+---
+title: "Ageing Analysis"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+library(dplyr)
+library(ggplot2)
+source("R/functions.R")
+library(FSA)
+library(nlstools)
+```
+
+
+```{r}
+mydata = read.csv("Final data.csv", header = T)
+```
+
+Remove dud values
+```{r}
+mydata <- mydata[ which(mydata$ReadAge >= 0),]
+mydata <- mydata[ which(mydata$FL..cm. > 0),]
+```
+
+```{r}
+plot(FL..cm. ~ ReadAge , data=mydata)
+```
+
+Adjust the increments to make the ones with an opaque edge in the DPI system equal a +1 age (to match a new edge in QLD process). A loop which adds 1 to read age if translucency is opaque
+
+```{r}
+mydata$Adj_Inc <- mydata$ReadAge
+
+for (i in 1:nrow(mydata)) {
+  if (mydata$EdgeTranslucency[i] == "o") {
+    mydata$Adj_Inc[i] <- mydata$ReadAge[i] + 1
+  } else {
+    mydata$Adj_Inc[i] <- mydata$ReadAge[i]
+  }
+}
+
+```
+
+
+
+```{r}
+plot(FL..cm. ~ Adj_Inc , data=mydata)
+```
+
+To get capture month as a variable
+```{r}
+mydata$Date.Caught <- as.Date(mydata$Date.Caught, "%d/%m/%Y")
+mydata$Capture.Month <- as.numeric(format(mydata$Date.Caught,"%m"))
+
+```
+
+
+To fix the MIA ratio so that if the edge is opaque the measurement is zero (ie, ring on the edge)
+```{r}
+for (i in 1:nrow(mydata)) {
+  if (mydata$EdgeTranslucency[i] == "o") {
+    mydata$MIncrRatio[i] <- 0
+  } else {
+    mydata$MIncrRatio[i] <- mydata$MIncrRatio[i]
+  }
+}
+
+```
+
+
+```{r}
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+```
+
+
+Check opaque zome formation time
+```{r}
+mydata$EdgeTranslucency <- factor(mydata$EdgeTranslucency, levels = c("o", "n", "m", "w"))
+mydata$Capture.Month <- as.factor(mydata$Capture.Month)
+mydata <- mydata[ which(mydata$Capture.Month !='NA'),] #remove NA
+
+table(mydata$Capture.Month, mydata$EdgeTranslucency)
+
+
+p4 <- ggplot(mydata, aes(Capture.Month, fill=EdgeTranslucency)) + geom_bar(position = "fill") +
+  theme_classic() + ylab("Proportion") + xlab("Month of Capture") +
+  scale_fill_manual(values=cbPalette, name="Edge Type", 
+  breaks=c("o", "n", "m", "w"), labels=c("Opaque", "New", "Medium", "Wide")) + theme(legend.position = "bottom")
+p4
+ggsave("Output/Edge Type by Month.pdf", width = 4, height = 4)
+ggsave("Output/Edge Type by Month.jpg", width = 4, height = 4)
+
+mydata$Prop_Opaque = factor(mydata$Prop_Opaque,levels(mydata$Prop_Opaque)[c(2,1)])
+p5 <- ggplot(mydata, aes(Capture.Month, fill=Prop_Opaque)) + geom_bar(position = "fill") +
+  theme_classic() + ylab("Proportion") + theme(axis.title.x = element_blank()) +
+  coord_cartesian(ylim=c(0, 0.25)) +
+  scale_fill_manual(values=cbPalette, name="Edge Type",breaks=c("Opaque", "Translucent"),       labels=c("Opaque", "Translucent")) + theme(legend.position = "bottom") + scale_fill_grey()
+p5
+
+mydata$Edge.Thickness = factor(mydata$Edge.Thickness,levels(mydata$Edge.Thickness)[c(3,2,4)])
+
+p7 <- ggplot(mydata, aes(Capture.Month, fill=Edge.Thickness)) + geom_bar(position = "fill")+
+  theme_classic() + ylab("Proportion") + xlab("Month of Capture") +
+  scale_fill_manual(values=cbPalette, name="Edge Type", 
+  breaks=c("n", "m", "w"), labels=c("Thin", "Medium", "Wide")) + theme(legend.position = "bottom") + scale_fill_grey()+ scale_fill_discrete(name="Experimental\nCondition",
+                         breaks=c("n", "m", "w"),
+                         labels=c("Control", "Treatment 1", "Treatment 2"))
+p7
+```
+
+Marginal Increment Analysis - All age classes
+
+```{r}
+Mdata <- summarySE(mydata, measurevar="MIncrRatio", groupvars=c("Capture.Month"), na.rm = T)
+Mdata$Capture.Month <- as.numeric(as.character(Mdata$Capture.Month))
+Mdata <- Mdata[which(Mdata$Capture.Month > 0),]
+Mdata$Capture.Month <- as.factor(Mdata$Capture.Month)
+Mdata
+
+
+p1 <- ggplot(Mdata, aes(Capture.Month, MIncrRatio)) + geom_point() + ylab("Marginal Increment Ratio") +
+  theme_classic() + xlab("Month of Capture") + geom_errorbar(aes(ymin=MIncrRatio-se, ymax=MIncrRatio+se))
+p1
+
+ggsave("Output/Marginal Increment Analysis.pdf", width = 4, height = 4)
+```
+
+```{r}
+table(mydata$Adj_Inc, mydata$Capture.Month)
+```
+
+Marginal Increment Analysis - Only Age 1
+
+```{r}
+mydata2 <- mydata[ which(mydata$Adj_Inc=='1'),]
+Mdata2 <- summarySE(mydata2, measurevar="MIncrRatio", groupvars=c("Capture.Month"), na.rm = T)
+Mdata2$Capture.Month <- as.numeric(as.character(Mdata2$Capture.Month))
+Mdata2 <- Mdata2[which(Mdata2$Capture.Month > 0),]
+Mdata2$Capture.Month <- as.factor(Mdata2$Capture.Month)
+Mdata2
+
+
+p2 <- ggplot(Mdata2, aes(Capture.Month, MIncrRatio)) + geom_point() + ylab("Marginal Increment Ratio") +
+  theme_classic() + xlab("Month of Capture") + geom_errorbar(aes(ymin=MIncrRatio-se, ymax=MIncrRatio+se)) +
+  geom_text(aes(label = N, y = MIncrRatio+se), vjust = -.5) + ylim(0,0.3)
+p2
+
+ggsave("Output/Marginal Increment Analysis - Age 1.pdf", width = 4, height = 4)
+ggsave("Output/Marginal Increment Analysis - Age 1.jpg", width = 4, height = 4)
+```
+
+Marginal Increment Analysis - Age 2
+```{r}
+mydata3 <- mydata[ which(mydata$Adj_Inc=='2'),]
+Mdata3 <- summarySE(mydata3, measurevar="MIncrRatio", groupvars=c("Capture.Month"), na.rm = T)
+Mdata3$Capture.Month <- as.numeric(as.character(Mdata3$Capture.Month))
+Mdata3 <- Mdata3[which(Mdata3$Capture.Month > 0),]
+Mdata3$Capture.Month <- as.factor(Mdata3$Capture.Month)
+Mdata3
+
+
+p3 <- ggplot(Mdata3, aes(Capture.Month, MIncrRatio)) + geom_point() + ylab("Marginal Increment Ratio") +
+  theme_classic() + xlab("Month of Capture") + geom_errorbar(aes(ymin=MIncrRatio-se, ymax=MIncrRatio+se)) +
+  geom_text(aes(label = N, y = MIncrRatio+se), vjust = -.5) + ylim(0,0.7)
+p3
+
+ggsave("Output/Marginal Increment Analysis - Age 2.pdf", width = 4, height = 4)
+ggsave("Output/Marginal Increment Analysis - Age 2.jpg", width = 4, height = 4)
+```
+```{r}
+multiplot(p2,p3,p5,p7, cols=2)
+```
+
+
+
+Marginal Increment Analysis - Age 3
+```{r}
+mydata4 <- mydata[ which(mydata$Adj_Inc=='3'),]
+Mdata4 <- summarySE(mydata4, measurevar="MIncrRatio", groupvars=c("Capture.Month"), na.rm = T)
+Mdata4$Capture.Month <- as.numeric(as.character(Mdata4$Capture.Month))
+Mdata4 <- Mdata4[which(Mdata4$Capture.Month > 0),]
+Mdata4$Capture.Month <- as.factor(Mdata4$Capture.Month)
+Mdata4
+
+
+p1 <- ggplot(Mdata4, aes(Capture.Month, MIncrRatio)) + geom_point() + ylab("Marginal Increment Ratio") +
+  theme_classic() + xlab("Month of Capture") + geom_errorbar(aes(ymin=MIncrRatio-se, ymax=MIncrRatio+se)) +
+  geom_text(aes(label = N, y = MIncrRatio+se), vjust = -.5)
+p1
+
+ggsave("Output/Marginal Increment Analysis - Age 3.pdf", width = 4, height = 4)
+ggsave("Output/Marginal Increment Analysis - Age 3.jpg", width = 4, height = 4)
+```
+
+
+To convert months to ages, assuming a birth month of September (month 9).
+You need to first calculate age group (cohort), then create an equation which will take into acount edge type and month. QLD have done this in their protocol.
+
+First you need to assign fish to cohorts using the edge classificaiton and month (NOT DONE YET)
+
+Using the function I wrote for the QLD formula which takes age group and converts to months. I currently have increment counts so need to calculate Age class then age group
+```{r}
+mydata$Capture.Month <- as.numeric(as.character(mydata$Capture.Month)) # makes capture month a numeric variable
+mydata$AgeClass <- mydata$Adj_Inc # sets up the variable but will then be adjusted
+
+for (i in 1:nrow(mydata)) {
+  if (mydata$EdgeTranslucency[i] == "n" & mydata$Capture.Month[i] == 8) {
+    mydata$AgeClass[i] <- mydata$Adj_Inc[i] - 1
+  } else if (mydata$EdgeTranslucency[i] == "o" & mydata$Capture.Month[i] == 8) {
+    mydata$AgeClass[i] <- mydata$Adj_Inc[i] - 1
+  } else if (mydata$EdgeTranslucency[i] == "w" & mydata$Capture.Month[i] >= 9) {
+    mydata$AgeClass[i] <- mydata$Adj_Inc[i] + 1
+ # } else if (mydata$EdgeTranslucency[i] == "w" & mydata$Capture.Month[i] == 1) {
+ #   mydata$AgeClass[i] <- mydata$Adj_Inc[i] + 1
+  }  else {
+    mydata$AgeClass[i] <- mydata$Adj_Inc[i]
+  }
+}
+
+# The follwing lines test the above code to see if the adjustments occured
+classtest <- mydata$Adj_Inc - mydata$AgeClass
+table(classtest)
+
+mydata$AgeGroup <- mydata$AgeClass # sets up the variable but will then be adjusted
+
+for (i in 1:nrow(mydata)) {
+  if (mydata$Capture.Month[i] <= 8) {
+    mydata$AgeGroup[i] <- mydata$AgeClass[i] + 1
+   }  else {
+    mydata$AgeGroup[i] <- mydata$AgeClass[i]
+  }
+}
+
+mydata$Months <- AgeMonths(mydata$AgeClass, mydata$Capture.Month, 9)
+plot(mydata$FL..cm. ~ mydata$Months)
+plot(mydata$FL..cm. ~ mydata$AgeClass)
+```
+
+
+```{r}
+growthplot <- ggplot(mydata, aes(x=Months, y = FL..cm.)) + geom_point(size=0.5) +
+  theme_classic() + ylab("Fork Length (cm)") + xlab("Age (Months)")
+growthplot
+ggsave("Output/Growth in Months.pdf", width = 5, height = 4)
+ggsave("Output/Growth in Months.jpg", width = 5, height = 4)
+
+```
+
+
+To generate growth models I am using the FSA package as follows, first try to generate starting values
+```{r}
+svTypical <- vbStarts(FL..cm.~Months,data=mydata)
+unlist(svTypical)
+```
+
+
+```{r}
+vbTypical <- FL..cm.~Linf*(1-exp(-K*(Months-t0)))
+fitTypical <- nls(vbTypical,data=mydata,start=svTypical)
+fitPlot(fitTypical,xlab="Age",ylab="Total Length (mm)",main="")
+```
+
+
+
+```{r}
+overview(fitTypical)
+```
+
+```{r}
+bootTypical <- nlsBoot(fitTypical,niter=1000)
+confint(bootTypical,plot=TRUE)
+```
+
+Testing frequency of distance to first ring in different ages
+
+
+```{r}
+mydata_I <- read.csv("first ring dist.csv", header = T)
+mydata_I <- mydata_I[ which(mydata_I$ReadAge >= 1),]
+hist(mydata_I$F1stRing)
+
+dist1 <- ggplot(mydata_I, aes(x = F1stRing)) + geom_histogram() + facet_wrap(~ReadAge, labeller = label_both) +
+  xlab("Distance to 1st ring (mm)")
+dist1
+
+ggsave("Output/Distance to 1st ring.pdf", width = 5, height = 4)
+ggsave("Output/Distance to 1st ring.jpg", width = 5, height = 4)
+```
+
+
+```{r}
+pF <- multiplot(p2,p4,p3, cols = 3)
+ggsave("Output/Validation Figure.pdf", width = 5, height = 3)
+
+```
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).

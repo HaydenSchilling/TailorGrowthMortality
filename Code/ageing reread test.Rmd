@@ -1,0 +1,102 @@
+---
+title: "Testing my reading consistency and bias"
+output:
+  html_document:
+    code_folding: hide
+  html_notebook: default
+---
+
+
+Load R libraries needed for analsysis (ggplot, FSA, BlandAltmanLeh and mulitplot function)
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(FSA)
+library(BlandAltmanLeh)
+library(dplyr)
+source("R/functions.R")
+```
+
+Load Data and select columns we are interested in
+```{r}
+autobias = read.csv("whole otolith counts/bias test/bias_Bias.csv", header=T)
+read1 = read.csv("whole otolith counts/whole counts.csv")
+myvars <- c("envNumberID", "ReadAge", "Readability", "EdgeTranslucency", "Length")
+read1 = read1[myvars]
+
+read2 = read.csv("whole otolith counts/reread/reread.csv")
+read2 = read2[myvars]
+```
+
+Merge data sets, keeping the correct columns
+```{r}
+mydata = merge(read1, read2, by="envNumberID",suffixes =c("1", "2"))
+head(mydata)
+
+```
+
+Adjust the increments to make the ones with an opaque edge in the DPI system equal a +1 age (to match a new edge in QLD process). A loop which adds 1 to read age if translucency is opaque
+
+```{r}
+mydata$Adj_Inc1 <- mydata$ReadAge1
+mydata$Adj_Inc2 <- mydata$ReadAge2
+for (i in 1:nrow(mydata)) {
+  if (mydata$EdgeTranslucency1[i] == "o") {
+    mydata$Adj_Inc1[i] <- mydata$ReadAge1[i] + 1
+  } else {
+    mydata$Adj_Inc1[i] <- mydata$ReadAge1[i]
+  }
+  if (mydata$EdgeTranslucency2[i] == "o") {
+    mydata$Adj_Inc2[i] <- mydata$ReadAge2[i] + 1
+  } else {
+    mydata$Adj_Inc2[i] <- mydata$ReadAge2[i]
+  }
+}
+
+
+```
+
+Checking read 1 v read 2 for bias
+
+```{r}
+bias_summary <- ageBias(Adj_Inc1~Adj_Inc2,data=mydata) 
+summary(bias_summary)
+```
+
+Therefore NO BIAS now check precision 
+
+```{r}
+Precision <- agePrecision(~Adj_Inc1+Adj_Inc2,data=mydata)
+summary(Precision, what="precision")
+```
+
+
+Make a plot of read 1 vs the re-read, using loess smoother, grey is 95% Confidence Interval
+```{r message=FALSE}
+p1 <- ggplot(data = mydata, aes(y = Adj_Inc1, x = Adj_Inc2)) + geom_jitter(height = 0.15, width = 0.15) +
+  geom_smooth() + theme_classic() + geom_abline(slope = 1, size = 1, linetype = 2)  +
+  ylab("Re-read Increments") + xlab("1st Read Increments")
+p1
+ggsave("Output/re_read bias.pdf", width = 4, height = 4)
+```
+
+Try and compare the bubble plots for edge consistency
+Start with table
+```{r}
+mydata$EdgeTranslucency1 <- factor(mydata$EdgeTranslucency1, levels = c("o", "n", "m", "w"))
+mydata$EdgeTranslucency2 <- factor(mydata$EdgeTranslucency2, levels = c("o", "n", "m", "w"))
+table(mydata$EdgeTranslucency1,mydata$EdgeTranslucency2)
+
+```
+
+Then with plot
+```{r}
+p2 <- ggplot(data = mydata, aes(y = EdgeTranslucency1, x = EdgeTranslucency2)) + 
+  geom_count(shape=21,colour = "black", fill = "white") +
+  theme_classic() + scale_size_area() + scale_x_discrete(limits=c("o","n","m","w")) +
+  scale_y_discrete(limits=c("o","n","m","w"))
+p2
+
+ggsave("Output/Edge bias.pdf", width = 4, height = 4)
+```
+
+
